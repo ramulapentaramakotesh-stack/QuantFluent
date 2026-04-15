@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './ChatInterface.css';
 import { apiService, validateBacktestResponse, validateOptimizationResponse } from '../services/api';
 import { grokService } from '../services/grok';
 import { authService, dbService } from '../services/auth';
 
-function ChatInterface() {
+function ChatInterface({ onStrategyLoad }) {
   const [messages, setMessages] = useState([
     { role: 'assistant', content: 'Hello! Describe your trading strategy in plain English. I will extract the parameters and run a backtest.' }
   ]);
@@ -14,6 +14,13 @@ function ChatInterface() {
   const [params, setParams] = useState({});
   const [error, setError] = useState(null);
   const [userId, setUserId] = useState(null);
+
+  useEffect(() => {
+    if (onStrategyLoad) {
+      setParams(onStrategyLoad);
+      window.strategyToRun = null;
+    }
+  }, [onStrategyLoad]);
 
   const extractStrategyParams = (text) => {
     const params = {
