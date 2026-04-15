@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import './ChatInterface.css';
-
-const API_URL = 'http://localhost:8000';
+import { apiService, validateBacktestResponse, validateOptimizationResponse } from '../services/api';
 
 function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -11,6 +10,7 @@ function ChatInterface() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState(null);
   const [params, setParams] = useState({});
+  const [error, setError] = useState(null);
 
   const extractStrategyParams = (text) => {
     const params = {
@@ -51,38 +51,42 @@ function ChatInterface() {
     const userMessage = input;
     setInput('');
     setLoading(true);
+    setError(null);
     
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     
     const extractedParams = extractStrategyParams(userMessage);
     setParams(extractedParams);
     
-    try {
-      const response = await fetch(`${API_URL}/api/backtest`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          strategy: extractedParams,
-          instrument: 'BTCUSDT',
-          timeframe: '1h',
-          start_date: '2026-01-01',
-          end_date: '2026-04-15'
-        })
-      });
-      
-      const data = await response.json();
-      setResults(data);
-      
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `Backtest complete! Win Rate: ${(data.win_rate * 100).toFixed(1)}%, Net Profit: $${data.net_profit.toFixed(2)}, Total Trades: ${data.total_trades}`
+    const result = await apiService.runBacktest(extractedParams);
+    
+    if (!result.success) {
+      setError(result.error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Error: ${result.error}` 
       }]);
-    } catch (error) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Error running backtest. Make sure the backend is running on localhost:8000'
-      }]);
+      setLoading(false);
+      return;
     }
+    
+    const validation = validateBacktestResponse(result.data);
+    if (!validation.valid) {
+      setError(validation.error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Validation Error: ${validation.error}` 
+      }]);
+      setLoading(false);
+      return;
+    }
+    
+    setResults(result.data);
+    
+    setMessages(prev => [...prev, {
+      role: 'assistant',
+      content: `Backtest complete! Win Rate: ${(result.data.win_rate * 100).toFixed(1)}%, Net Profit: $${result.data.net_profit.toFixed(2)}, Total Trades: ${result.data.total_trades}`
+    }]);
     
     setLoading(false);
   };
@@ -91,36 +95,40 @@ function ChatInterface() {
     if (!params.indicator || loading) return;
     
     setLoading(true);
+    setError(null);
     setMessages(prev => [...prev, { role: 'user', content: 'Run optimization' }]);
     
-    try {
-      const response = await fetch(`${API_URL}/api/optimize`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          strategy: params,
-          instrument: 'BTCUSDT',
-          timeframe: '1h',
-          start_date: '2026-01-01',
-          end_date: '2026-04-15',
-          target: 'net_profit',
-          num_variations: 5
-        })
-      });
-      
-      const data = await response.json();
-      
-      if (data.results && data.results.length > 0) {
-        const best = data.results[0];
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: `Optimization best: EMA ${best.params.indicator.fast}/${best.params.indicator.slow}, Net Profit: $${best.metrics.net_profit.toFixed(2)}`
-        }]);
-      } else {
-        setMessages(prev => [...prev, { role: 'assistant', content: 'No optimization results' }]);
-      }
-    } catch (error) {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error running optimization' }]);
+    const result = await apiService.runOptimization(params);
+    
+    if (!result.success) {
+      setError(result.error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Optimization Error: ${result.error}` 
+      }]);
+      setLoading(false);
+      return;
+    }
+    
+    const validation = validateOptimizationResponse(result.data);
+    if (!validation.valid) {
+      setError(validation.error);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: `Validation Error: ${validation.error}` 
+      }]);
+      setLoading(false);
+      return;
+    }
+    
+    if (result.data.results && result.data.results.length > 0) {
+      const best = result.data.results[0];
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Optimization best: EMA ${best.params.indicator.fast}/${best.params.indicator.slow}, Net Profit: $${best.metrics.net_profit.toFixed(2)}`
+      }]);
+    } else {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'No optimization results' }]);
     }
     
     setLoading(false);
@@ -132,6 +140,12 @@ function ChatInterface() {
         <h1>QuantFluent AI</h1>
         <p>Describe your trading strategy</p>
       </div>
+      
+      {error && (
+        <div className="error-message">
+          {error}
+        </div>
+      )}
       
       <div className="chat-messages">
         {messages.map((msg, i) => (
