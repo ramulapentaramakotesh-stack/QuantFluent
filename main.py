@@ -5,6 +5,7 @@ import numpy as np
 import requests
 from datetime import datetime
 from typing import List, Dict, Any
+import random
 
 app = FastAPI()
 
@@ -265,6 +266,79 @@ def backtest_endpoint(strategy: StrategyRequest):
         "total_trades": result.get("total_trades", 0),
         "trade_logs": result["trade_logs"]
     }
+
+PARAM_RANGES = {
+    "EMA_CROSS": {
+        "fast": (5, 20),
+        "slow": (15, 50)
+    },
+    "RSI": {
+        "period": (5, 30)
+    },
+    "ATR": {
+        "period": (5, 30)
+    },
+    "risk_reward_ratio": (1.0, 5.0),
+    "atr_sl_multiplier": (1.0, 4.0)
+}
+
+def generate_parameter_variations(base_strategy: dict, num_variations: int = 10) -> List[dict]:
+    variations = []
+    indicator = base_strategy.get("indicator", {})
+    indicator_type = indicator.get("type", "")
+    
+    indicator_ranges = PARAM_RANGES.get(indicator_type, {})
+    rr_range = PARAM_RANGES.get("risk_reward_ratio", (1.0, 5.0))
+    atr_range = PARAM_RANGES.get("atr_sl_multiplier", (1.0, 4.0))
+    
+    for _ in range(num_variations):
+        new_indicator = dict(indicator)
+        
+        for param, (min_val, max_val) in indicator_ranges.items():
+            if param in ["fast", "slow", "period"]:
+                new_indicator[param] = random.randint(min_val, max_val)
+            elif param in ["multiplier"]:
+                new_indicator[param] = round(random.uniform(min_val, max_val), 2)
+        
+        rr = round(random.uniform(*rr_range), 2)
+        atr_mult = round(random.uniform(*atr_range), 2)
+        
+        variations.append({
+            "indicator": new_indicator,
+            "risk_reward_ratio": rr,
+            "atr_sl_multiplier": atr_mult
+        })
+    
+    return variations
+
+def run_optimization(df: pd.DataFrame, base_strategy: dict, num_variations: int = 10, target: str = "net_profit") -> List[dict]:
+    variations = generate_parameter_variations(base_strategy, num_variations)
+    
+    results = []
+    for params in variations:
+        strategy = dict(params)
+        metrics = execute_strategy(df, strategy)
+        
+        results.append({
+            "params": params,
+            "metrics": {
+                "net_profit": metrics["net_profit"],
+                "win_rate": metrics["win_rate"],
+                "max_drawdown": metrics["max_drawdown"],
+                "total_trades": metrics["total_trades"]
+            }
+        })
+    
+    if target == "net_profit":
+        results.sort(key=lambda x: x["metrics"]["net_profit"], reverse=True)
+    elif target == "win_rate":
+        results.sort(key=lambda x: x["metrics"]["win_rate"], reverse=True)
+    elif target == "max_drawdown":
+        results.sort(key=lambda x: x["metrics"]["max_drawdown"])
+    else:
+        results.sort(key=lambda x: x["metrics"]["net_profit"], reverse=True)
+    
+    return results
 
 if __name__ == '__main__':
     import uvicorn
