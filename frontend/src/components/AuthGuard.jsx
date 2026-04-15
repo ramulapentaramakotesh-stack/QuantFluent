@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import './Auth.css';
+import EmailAuth from './EmailAuth';
 import { authService, dbService } from '../services/auth';
 
 function AuthGuard({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [strategies, setStrategies] = useState([]);
 
   useEffect(() => {
     checkUser();
@@ -16,29 +16,13 @@ function AuthGuard({ children }) {
     if (session) {
       const userData = await authService.getUser();
       setUser(userData);
-      loadUserData(userData.id);
     }
     setLoading(false);
-  };
-
-  const loadUserData = async (userId) => {
-    const result = await dbService.getStrategies(userId);
-    if (result.success) {
-      setStrategies(result.data);
-    }
-  };
-
-  const handleLogin = async () => {
-    const result = await authService.login();
-    if (result.success) {
-      checkUser();
-    }
   };
 
   const handleLogout = async () => {
     await authService.logout();
     setUser(null);
-    setStrategies([]);
   };
 
   if (loading) {
@@ -52,16 +36,7 @@ function AuthGuard({ children }) {
 
   if (!user) {
     return (
-      <div className="auth-login">
-        <div className="login-card">
-          <h1>QuantFluent</h1>
-          <p>AI-Powered Trading Strategy Platform</p>
-          <button onClick={handleLogin} className="login-btn">
-            Sign in with Google
-          </button>
-          <p className="login-note">Sign in to save and access your strategies</p>
-        </div>
-      </div>
+      <EmailAuth onAuthSuccess={checkUser} />
     );
   }
 

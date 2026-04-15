@@ -21,6 +21,36 @@ export const authService = {
     return { success: true, data };
   },
 
+  async signup(email, password) {
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password
+    });
+    
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    
+    if (!data.session && data.user) {
+      return { success: true, requiresVerification: true };
+    }
+    
+    return { success: true, data };
+  },
+
+  async loginWithPassword(email, password) {
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password
+    });
+    
+    if (error) {
+      return { success: false, error: error.message };
+    }
+    
+    return { success: true, data: data.user };
+  },
+
   async logout() {
     const { error } = await supabase.auth.signOut();
     
@@ -154,6 +184,19 @@ export const dbService = {
     
     return { success: true, data };
   }
+};
+
+export const validateEmail = (email) => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
+
+export const validatePassword = (password) => {
+  return password && password.length >= 6;
+};
+
+export const validatePasswordMatch = (password, confirmPassword) => {
+  return password === confirmPassword;
 };
 
 export default authService;
