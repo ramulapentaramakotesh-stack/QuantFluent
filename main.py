@@ -1,26 +1,82 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 import pandas as pd
 import numpy as np
 import requests
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import random
 
 app = FastAPI()
 
 class StrategyRequest(BaseModel):
     indicator: dict
-    entry_condition: str
-    exit_condition: str
+    entry_condition: str = ""
+    exit_condition: str = ""
     risk_reward_ratio: float
     atr_sl_multiplier: float
-    risk_per_trade: float
+    risk_per_trade: float = 0
 
 class BacktestResult(BaseModel):
     win_rate: float
     net_profit: float
     trade_logs: list
+
+class APIBacktestRequest(BaseModel):
+    strategy: dict
+    instrument: str = "BTCUSDT"
+    timeframe: str = "1h"
+    start_date: str
+    end_date: str
+    
+    @field_validator('timeframe')
+    @classmethod
+    def validate_timeframe(cls, v):
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        if v not in valid_timeframes:
+            raise ValueError(f"timeframe must be one of {valid_timeframes}")
+        return v
+    
+    @field_validator('start_date', 'end_date')
+    @classmethod
+    def validate_date(cls, v):
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+class APIOptimizeRequest(BaseModel):
+    strategy: dict
+    instrument: str = "BTCUSDT"
+    timeframe: str = "1h"
+    start_date: str
+    end_date: str
+    target: str = "net_profit"
+    num_variations: int = 10
+    
+    @field_validator('timeframe')
+    @classmethod
+    def validate_timeframe(cls, v):
+        valid_timeframes = ["1m", "5m", "15m", "30m", "1h", "4h", "1d"]
+        if v not in valid_timeframes:
+            raise ValueError(f"timeframe must be one of {valid_timeframes}")
+        return v
+    
+    @field_validator('target')
+    @classmethod
+    def validate_target(cls, v):
+        valid_targets = ["net_profit", "win_rate", "max_drawdown"]
+        if v not in valid_targets:
+            raise ValueError(f"target must be one of {valid_targets}")
+        return v
+    
+    @field_validator('start_date', 'end_date')
+    @classmethod
+    def validate_date(cls, v):
+        datetime.strptime(v, "%Y-%m-%d")
+        return v
+
+class HealthResponse(BaseModel):
+    status: str
+    version: str = "1.0.0"
 
 TIMEFRAME_MAP = {
     "1m": "1m", "5m": "5m", "15m": "15m",
@@ -249,6 +305,50 @@ def execute_strategy(df: pd.DataFrame, strategy: dict) -> dict:
         "total_trades": total_trades,
         "trade_logs": trades
     }
+
+@app.get("/api/health")
+def health_endpoint() -> dict:
+    return {"status": "healthy", "version": "1.0.0"}
+
+@app.post("/api/backtest")
+def api_backtest_endpoint(request: APIBacktestRequest):
+    try:
+        df = fetch_binance_data(request.instrument, request.timeframe, request.start_date, request.end_date)
+        
+        if df.empty:
+            return {
+                "win_rate": 0,
+                "net_profit": 0,
+                "max_drawdown": 0,
+                "total_trades": 0,
+                "trade_logs": []
+            }
+        
+        result = execute_strategy(df, request.strategy)
+        
+        return {
+            "win_rate": result["win_rate"],
+            "net_profit": result["net_profit"],
+            "max_drawdown": result.get("max_drawdown", 0),
+            "total_trades": result.get("total_trades", 0),
+            "trade_logs": result["trade_logs"]
+        }
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
+
+@app.post("/api/optimize")
+def api_optimize_endpoint(request: APIOptimizeRequest):
+    try:
+        df = fetch_binance_data(request.instrument, request.timeframe, request.start_date, request.end_date)
+        
+        if df.empty:
+            return {"results": [], "status": "no_data"}
+        
+        results = run_optimization(df, request.strategy, request.num_variations, request.target)
+        
+        return {"results": results}
+    except Exception as e:
+        return {"error": str(e), "status": "failed"}
 
 @app.post("/backtest")
 def backtest_endpoint(strategy: StrategyRequest):
