@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import './ChatInterface.css';
 import { apiService, validateBacktestResponse, validateOptimizationResponse } from '../services/api';
+import { grokService, convertToBacktestFormat } from '../services/grok';
 
 function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -55,7 +56,26 @@ function ChatInterface() {
     
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     
-    const extractedParams = extractStrategyParams(userMessage);
+    let extractedParams;
+    let useGrok = true;
+    
+    const grokResult = await grokService.generateStrategy(userMessage);
+    
+    if (grokResult.success && grokResult.data) {
+      extractedParams = convertToBacktestFormat(grokResult.data);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Strategy parsed with AI. Running backtest...' 
+      }]);
+    } else {
+      useGrok = false;
+      extractedParams = extractStrategyParams(userMessage);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: 'Using local parser. Running backtest...' 
+      }]);
+    }
+    
     setParams(extractedParams);
     
     const result = await apiService.runBacktest(extractedParams);
