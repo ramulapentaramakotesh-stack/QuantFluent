@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import './ChatInterface.css';
 import { apiService, validateBacktestResponse, validateOptimizationResponse } from '../services/api';
 import { grokService } from '../services/grok';
@@ -13,7 +14,6 @@ function ChatInterface({ onStrategyLoad }) {
   const [results, setResults] = useState(null);
   const [params, setParams] = useState({});
   const [error, setError] = useState(null);
-  const [userId, setUserId] = useState(null);
 
   useEffect(() => {
     if (onStrategyLoad) {
@@ -25,8 +25,6 @@ function ChatInterface({ onStrategyLoad }) {
   const extractStrategyParams = (text) => {
     const params = {
       indicator: { type: 'EMA_CROSS' },
-      entry_condition: '',
-      exit_condition: '',
       risk_reward_ratio: 2.0,
       atr_sl_multiplier: 1.5,
       risk_per_trade: 100
@@ -40,11 +38,6 @@ function ChatInterface({ onStrategyLoad }) {
     const atrMatch = text.match(/atr\s*[:=]?\s*(\d+\.?\d*)|stop\s*loss.*atr\s*[:=]?\s*(\d+\.?\d*)/i);
     if (atrMatch) {
       params.atr_sl_multiplier = parseFloat(atrMatch[1] || atrMatch[2]) || 1.5;
-    }
-    
-    const riskMatch = text.match(/\$?(\d+)\s*risk|risk\s*(?:per\s*trade)?\s*[:\$]?\s*\$?(\d+)/i);
-    if (riskMatch) {
-      params.risk_per_trade = parseFloat(riskMatch[1] || riskMatch[2]) || 100;
     }
     
     const emaMatch = text.match(/ema\s*(\d+)\s*(?:\/|and)\s*ema\s*(\d+)/i);
@@ -66,8 +59,6 @@ function ChatInterface({ onStrategyLoad }) {
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     
     let extractedParams;
-    let useGrok = true;
-    
     const grokResult = await grokService.generateStrategy(userMessage);
     
     if (grokResult.success && grokResult.data) {
@@ -77,7 +68,6 @@ function ChatInterface({ onStrategyLoad }) {
         content: grokResult.message || 'Strategy parsed. Running backtest...' 
       }]);
     } else {
-      useGrok = false;
       extractedParams = extractStrategyParams(userMessage);
       setMessages(prev => [...prev, { 
         role: 'assistant', 
@@ -91,10 +81,7 @@ function ChatInterface({ onStrategyLoad }) {
     
     if (!result.success) {
       setError(result.error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Error: ${result.error}` 
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${result.error}` }]);
       setLoading(false);
       return;
     }
@@ -102,10 +89,7 @@ function ChatInterface({ onStrategyLoad }) {
     const validation = validateBacktestResponse(result.data);
     if (!validation.valid) {
       setError(validation.error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Validation Error: ${validation.error}` 
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Validation Error: ${validation.error}` }]);
       setLoading(false);
       return;
     }
@@ -137,10 +121,7 @@ function ChatInterface({ onStrategyLoad }) {
     
     if (!result.success) {
       setError(result.error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Optimization Error: ${result.error}` 
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Optimization Error: ${result.error}` }]);
       setLoading(false);
       return;
     }
@@ -148,22 +129,17 @@ function ChatInterface({ onStrategyLoad }) {
     const validation = validateOptimizationResponse(result.data);
     if (!validation.valid) {
       setError(validation.error);
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: `Validation Error: ${validation.error}` 
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: `Validation Error: ${validation.error}` }]);
       setLoading(false);
       return;
     }
     
     if (result.data.results && result.data.results.length > 0) {
       const best = result.data.results[0];
-      
       const user = await authService.getUser();
       if (user) {
         await dbService.saveOptimization(user.id, result.data);
       }
-      
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Optimization best: EMA ${best.params.indicator.fast}/${best.params.indicator.slow}, Net Profit: $${best.metrics.net_profit.toFixed(2)}`
@@ -177,23 +153,39 @@ function ChatInterface({ onStrategyLoad }) {
 
   return (
     <div className="chat-container">
-      <div className="chat-header">
-        <h1>QuantFluent AI</h1>
-        <p>Describe your trading strategy</p>
-      </div>
+      <motion.h1 
+        className="chat-title"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        QuantFluent AI
+      </motion.h1>
+      <p className="chat-subtitle">Describe your trading strategy</p>
       
       {error && (
-        <div className="error-message">
+        <motion.div 
+          className="error-message"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+        >
           {error}
-        </div>
+        </motion.div>
       )}
       
       <div className="chat-messages">
-        {messages.map((msg, i) => (
-          <div key={i} className={`message ${msg.role}`}>
-            {msg.content}
-          </div>
-        ))}
+        <AnimatePresence>
+          {messages.map((msg, i) => (
+            <motion.div 
+              key={i}
+              className={`message ${msg.role}`}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: i * 0.05 }}
+            >
+              {msg.content}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
       
       <div className="chat-input">
@@ -202,18 +194,27 @@ function ChatInterface({ onStrategyLoad }) {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="e.g., Buy when EMA 9 crosses above EMA 21, RR 2:1, ATR stop 1.5x, $100 risk"
+          placeholder="e.g., Buy when EMA 9 crosses EMA 21, RR 2:1, ATR stop 1.5x"
           disabled={loading}
         />
-        <button onClick={sendMessage} disabled={loading || !input.trim()}>
+        <motion.button 
+          onClick={sendMessage} 
+          disabled={loading || !input.trim()}
+          whileHover={{ scale: loading ? 1 : 1.02 }}
+          whileTap={{ scale: loading ? 1 : 0.98 }}
+        >
           {loading ? '...' : 'Send'}
-        </button>
+        </motion.button>
       </div>
       
       {results && (
-        <div className="results-panel">
-          <button onClick={runOptimization} disabled={loading}>Optimize</button>
-        </div>
+        <motion.div 
+          className="results-panel"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <button onClick={runOptimization} disabled={loading}>Optimize Strategy</button>
+        </motion.div>
       )}
     </div>
   );
