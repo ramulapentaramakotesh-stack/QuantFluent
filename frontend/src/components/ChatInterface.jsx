@@ -2,6 +2,7 @@ import { useState } from 'react';
 import './ChatInterface.css';
 import { apiService, validateBacktestResponse, validateOptimizationResponse } from '../services/api';
 import { grokService } from '../services/grok';
+import { authService, dbService } from '../services/auth';
 
 function ChatInterface() {
   const [messages, setMessages] = useState([
@@ -12,6 +13,7 @@ function ChatInterface() {
   const [results, setResults] = useState(null);
   const [params, setParams] = useState({});
   const [error, setError] = useState(null);
+  const [userId, setUserId] = useState(null);
 
   const extractStrategyParams = (text) => {
     const params = {
@@ -103,6 +105,12 @@ function ChatInterface() {
     
     setResults(result.data);
     
+    const user = await authService.getUser();
+    if (user) {
+      await dbService.saveStrategy(user.id, extractedParams);
+      await dbService.saveBacktest(user.id, result.data);
+    }
+    
     setMessages(prev => [...prev, {
       role: 'assistant',
       content: `Backtest complete! Win Rate: ${(result.data.win_rate * 100).toFixed(1)}%, Net Profit: $${result.data.net_profit.toFixed(2)}, Total Trades: ${result.data.total_trades}`
@@ -143,6 +151,12 @@ function ChatInterface() {
     
     if (result.data.results && result.data.results.length > 0) {
       const best = result.data.results[0];
+      
+      const user = await authService.getUser();
+      if (user) {
+        await dbService.saveOptimization(user.id, result.data);
+      }
+      
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: `Optimization best: EMA ${best.params.indicator.fast}/${best.params.indicator.slow}, Net Profit: $${best.metrics.net_profit.toFixed(2)}`
