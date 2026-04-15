@@ -1,9 +1,10 @@
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const API_ENDPOINTS = {
   health: `${API_BASE_URL}/api/health`,
   backtest: `${API_BASE_URL}/api/backtest`,
-  optimize: `${API_BASE_URL}/api/optimize`
+  optimize: `${API_BASE_URL}/api/optimize`,
+  parseStrategy: `${API_BASE_URL}/api/parse-strategy`
 };
 
 export const apiService = {
@@ -17,7 +18,7 @@ export const apiService = {
     } catch (error) {
       return {
         success: false,
-        error: 'Unable to connect to backend server'
+        error: 'Cannot connect to backend. Make sure backend is running on port 8000.'
       };
     }
   },
@@ -32,14 +33,20 @@ export const apiService = {
     };
 
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000);
+      
       const response = await fetch(API_ENDPOINTS.backtest, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: controller.signal
       });
-
+      
+      clearTimeout(timeoutId);
+      
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }

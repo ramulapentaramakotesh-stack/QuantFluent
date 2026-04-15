@@ -1,8 +1,8 @@
-const BACKEND_URL = 'http://localhost:8000';
+const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const localParse = (text) => {
   const params = {
-    indicator: { type: 'EMA_CROSS' },
+    indicator: { type: 'EMA_CROSS', fast: 9, slow: 21 },
     risk_reward_ratio: 2.0,
     atr_sl_multiplier: 1.5,
     risk_per_trade: 100
@@ -18,11 +18,6 @@ const localParse = (text) => {
     params.atr_sl_multiplier = parseFloat(atrMatch[1] || atrMatch[2]) || 1.5;
   }
   
-  const riskMatch = text.match(/\$?(\d+)\s*risk|risk\s*(?:per\s*trade)?\s*[:\$]?\s*\$?(\d+)/i);
-  if (riskMatch) {
-    params.risk_per_trade = parseFloat(riskMatch[1] || riskMatch[2]) || 100;
-  }
-  
   const emaMatch = text.match(/ema\s*(\d+)\s*(?:\/|and)\s*ema\s*(\d+)/i);
   if (emaMatch) {
     params.indicator = { type: 'EMA_CROSS', fast: parseInt(emaMatch[1]), slow: parseInt(emaMatch[2]) };
@@ -36,7 +31,7 @@ export const grokService = {
   async generateStrategy(userMessage) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       
       const response = await fetch(`${BACKEND_URL}/api/parse-strategy`, {
         method: 'POST',
@@ -46,10 +41,6 @@ export const grokService = {
       });
       
       clearTimeout(timeoutId);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
       
       const data = await response.json();
       
