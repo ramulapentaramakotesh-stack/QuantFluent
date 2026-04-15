@@ -3,10 +3,22 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+console.log('[Auth] Supabase URL configured:', !!supabaseUrl);
+console.log('[Auth] Supabase Key configured:', !!supabaseAnonKey);
+
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.warn('[Auth] Supabase environment variables not configured properly');
+}
+
+export const supabase = (supabaseUrl && supabaseAnonKey) 
+  ? createClient(supabaseUrl, supabaseAnonKey)
+  : null;
+
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey);
 
 export const authService = {
   async login() {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -22,6 +34,7 @@ export const authService = {
   },
 
   async signup(email, password) {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase.auth.signUp({
       email,
       password
@@ -39,6 +52,7 @@ export const authService = {
   },
 
   async loginWithPassword(email, password) {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password
@@ -52,6 +66,7 @@ export const authService = {
   },
 
   async logout() {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { error } = await supabase.auth.signOut();
     
     if (error) {
@@ -62,6 +77,7 @@ export const authService = {
   },
 
   async getSession() {
+    if (!supabase) return null;
     const { data, error } = await supabase.auth.getSession();
     
     if (error || !data.session) {
@@ -72,6 +88,7 @@ export const authService = {
   },
 
   async getUser() {
+    if (!supabase) return null;
     const { data: { user }, error } = await supabase.auth.getUser();
     
     if (error || !user) {
@@ -82,6 +99,7 @@ export const authService = {
   },
 
   onAuthChange(callback) {
+    if (!supabase) return { data: { subscription: { unsubscribe: () => {} } } };
     return supabase.auth.onAuthStateChange((event, session) => {
       callback(event, session);
     });
@@ -90,6 +108,7 @@ export const authService = {
 
 export const dbService = {
   async saveStrategy(userId, strategyJson) {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase
       .from('strategies')
       .insert({
@@ -108,6 +127,7 @@ export const dbService = {
   },
 
   async getStrategies(userId) {
+    if (!supabase) return { success: false, error: 'Supabase not configured', data: [] };
     const { data, error } = await supabase
       .from('strategies')
       .select('*')
@@ -122,6 +142,7 @@ export const dbService = {
   },
 
   async saveBacktest(userId, resultsJson) {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase
       .from('backtests')
       .insert({
@@ -140,6 +161,7 @@ export const dbService = {
   },
 
   async getBacktests(userId) {
+    if (!supabase) return { success: false, error: 'Supabase not configured', data: [] };
     const { data, error } = await supabase
       .from('backtests')
       .select('*')
@@ -154,6 +176,7 @@ export const dbService = {
   },
 
   async saveOptimization(userId, resultsJson) {
+    if (!supabase) return { success: false, error: 'Supabase not configured' };
     const { data, error } = await supabase
       .from('optimizations')
       .insert({
@@ -172,6 +195,7 @@ export const dbService = {
   },
 
   async getOptimizations(userId) {
+    if (!supabase) return { success: false, error: 'Supabase not configured', data: [] };
     const { data, error } = await supabase
       .from('optimizations')
       .select('*')
