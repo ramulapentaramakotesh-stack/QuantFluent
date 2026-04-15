@@ -7,7 +7,32 @@ from datetime import datetime
 from typing import List, Dict, Any, Optional
 import random
 
+import os
+
 app = FastAPI()
+
+GROK_API_KEY = os.environ.get('GROK_API_KEY', '')
+GROK_API_URL = 'https://api.xai.com/v1/chat/completions'
+
+SYSTEM_PROMPT = '''You are a trading strategy assistant for QuantFluent, an AI-powered backtesting platform.
+
+Your task is to convert natural language trading strategies into structured JSON format.
+
+REQUIRED OUTPUT FORMAT:
+{
+  "entry": { "type": "EMA_CROSS", "fast": number, "slow": number },
+  "exit": { "type": "EMA_CROSS", "fast": number, "slow": number },
+  "risk_management": {
+    "risk_reward_ratio": number,
+    "atr_sl_multiplier": number,
+    "risk_per_trade": number
+  }
+}
+
+RULES:
+1. ALWAYS include risk_reward_ratio, atr_sl_multiplier, and risk_per_trade
+2. Default values: RR=2.0, ATR=1.5, Risk=100
+3. Return ONLY valid JSON, no explanations'''
 
 class StrategyRequest(BaseModel):
     indicator: dict
@@ -309,6 +334,97 @@ def execute_strategy(df: pd.DataFrame, strategy: dict) -> dict:
 @app.get("/api/health")
 def health_endpoint() -> dict:
     return {"status": "healthy", "version": "1.0.0"}
+
+class ParseStrategyRequest(BaseModel):
+    message: str
+
+def local_fallback_parse(text: str) -> dict:
+    params = {
+        "indicator": {"type": "EMA_CROSS"},
+        "risk_reward_ratio": 2.0,
+        "atr_sl_multiplier": 1.5,
+        "risk_per_trade": 100
+    }
+    
+    import re
+    rr_match = re.search(r'(\d+\.?\d*)\s*[:(-]?\s*risk.?reward|rr\s*[:=]?\s*(\d+\.?\d*)', text, re.IGNORECASE)
+    if rr_match:
+        params["risk_reward_ratio"] = float(rr_match.group(1) or rr_match.group(2) or 2.0)
+    
+    atr_match = re.search(r'atr\s*[:=]?\s*(\d+\.?\d*)|stop\s*loss.*atr\s*[:=]?\s*(\d+\.?\d*)', text, re.IGNORECASE)
+    if atr_match:
+        params["atr_sl_multiplier"] = float(atr_match.group(1) or atr_match.group(2) or 1.5)
+    
+    risk_match = re.search(r'\$?(\d+)\s*risk|risk\s*(?:per\s*trade)?\s*[:$]?\s*\$?(\d+)', text, re.IGNORECASE)
+    if risk_match:
+        params["risk_per_trade"] = float(risk_match.group(1) or risk_match.group(2) or 100)
+    
+    ema_match = re.search(r'ema\s*(\d+)\s*(?:/|and)\s*ema\s*(\d+)', text, re.IGNORECASE)
+    if ema_match:
+        params["indicator"] = {"type": "EMA_CROSS", "fast": int(ema_match.group(1)), "slow": int(ema_match.group(2))}
+    
+    print(f'[BACKEND] Using fallback parser')
+    return params
+
+def parse_with_grok(message: str) -> dict:
+    if not GROK_API_KEY:
+        return None
+    
+    try:
+        response = requests.post(
+            GROK_API_URL,
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {GROK_API_KEY}'
+            },
+            json={
+                'model': 'grok-2',
+                'messages': [
+                    {'role': 'system', 'content': SYSTEM_PROMPT},
+                    {'role': 'user', 'content': message}
+                ],
+                'temperature': 0.3,
+                'max_tokens': 500
+            },
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            return None
+        
+        data = response.json()
+        content = data.get('choices', [{}])[0].get('message', {}).get('content', '')
+        
+        import json
+        strategy = json.loads(content)
+        
+        if not strategy.get('risk_management'):
+            return None
+            
+        print('[BACKEND] Grok parsed successfully')
+        return {
+            "indicator": {
+                "type": strategy.get('entry', {}).get('type', 'EMA_CROSS'),
+                "fast": strategy.get('entry', {}).get('fast', 9),
+                "slow": strategy.get('entry', {}).get('slow', 21)
+            },
+            "risk_reward_ratio": strategy['risk_management'].get('risk_reward_ratio', 2.0),
+            "atr_sl_multiplier": strategy['risk_management'].get('atr_sl_multiplier', 1.5),
+            "risk_per_trade": strategy['risk_management'].get('risk_per_trade', 100)
+        }
+    except Exception as e:
+        print(f'[BACKEND] Grok error: {e}')
+        return None
+
+@app.post("/api/parse-strategy")
+def parse_strategy_endpoint(request: ParseStrategyRequest):
+    strategy = parse_with_grok(request.message)
+    
+    if strategy:
+        return {"strategy": strategy, "fallback_used": False}
+    
+    fallback_strategy = local_fallback_parse(request.message)
+    return {"strategy": fallback_strategy, "fallback_used": True}
 
 @app.post("/api/backtest")
 def api_backtest_endpoint(request: APIBacktestRequest):
